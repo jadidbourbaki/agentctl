@@ -122,7 +122,7 @@ class IncidentView(App[None]):
     def compose(self) -> ComposeResult:
         yield Static("Checkout incident", id="title")
         yield Static("Connecting to agentctl", id="state")
-        yield RichLog(wrap=True)
+        yield RichLog(wrap=True, min_width=1)
         yield Footer()
 
     def on_mount(self) -> None:
