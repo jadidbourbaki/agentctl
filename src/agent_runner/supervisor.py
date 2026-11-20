@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import os
 import signal
 import socket
@@ -10,9 +9,11 @@ import subprocess
 import sys
 import time
 from contextlib import suppress
-from dataclasses import asdict, dataclass
 from pathlib import Path
 from select import select
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, PositiveInt
 
 CONTROL = "control.sock"
 RESULT = "result.json"
@@ -20,14 +21,12 @@ LOG = "output.log"
 STOP_GRACE_SECONDS = 3
 
 
-@dataclass
-class Status:
-    state: str
-    pid: int
-    returncode: int | None = None
+class Status(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
 
-    def to_json(self) -> str:
-        return json.dumps(asdict(self))
+    state: Literal["running", "suspended", "stopping", "exited"]
+    pid: PositiveInt
+    returncode: int | None = None
 
 
 def control(group: int, status: Status, command: bytes) -> float | None:
@@ -62,14 +61,14 @@ def finish(process: subprocess.Popen[bytes], status: Status) -> None:
     kill_group(process.pid)
     status.returncode = process.wait()
     status.state = "exited"
-    Path("result.tmp").write_text(status.to_json())
+    Path("result.tmp").write_text(status.model_dump_json())
     Path("result.tmp").replace(RESULT)
 
 
 def supervise(
     listener: socket.socket, child_events: socket.socket, process: subprocess.Popen[bytes]
 ) -> None:
-    status = Status("running", process.pid)
+    status = Status(state="running", pid=process.pid)
     stop_deadline = None
     while not has_exited(process.pid):
         timeout = None
@@ -99,7 +98,7 @@ def supervise(
             if deadline is not None:
                 stop_deadline = deadline
             with suppress(ConnectionError, TimeoutError):
-                connection.sendall(status.to_json().encode())
+                connection.sendall(status.model_dump_json().encode())
         if status.state == "exited":
             return
     finish(process, status)

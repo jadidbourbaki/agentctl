@@ -8,6 +8,7 @@ import sys
 import time
 from collections.abc import Iterator
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 
@@ -17,14 +18,17 @@ class Runner:
         self.directory = directory
         self.runs: list[str] = []
 
-    def call(self, *args: str) -> str:
-        result = subprocess.run(
+    def invoke(self, *args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
             [sys.executable, "-c", "from agent_runner.cli import main; main()", *args],
             env={**os.environ, "AGENT_RUNNER_STATE_DIR": str(self.directory)},
             capture_output=True,
             text=True,
             timeout=10,
         )
+
+    def call(self, *args: str) -> str:
+        result = self.invoke(*args)
         assert result.returncode == 0, result.stderr
         return result.stdout.strip()
 
@@ -110,3 +114,17 @@ def test_stop_kills_a_process_that_ignores_sigterm(runner: Runner) -> None:
 
     runner.call("stop", run_id)
     assert runner.wait_for_exit(run_id) == -signal.SIGKILL
+
+
+def test_status_rejects_a_malformed_result(runner: Runner) -> None:
+    run_id = uuid4().hex
+    run_directory = runner.directory / run_id
+    run_directory.mkdir(parents=True)
+    (run_directory / "result.json").write_text(
+        '{"state":"exited","pid":"not a process ID","returncode":0}'
+    )
+
+    result = runner.invoke("status", run_id)
+    assert result.returncode == 1
+    assert not result.stdout
+    assert "pid" in result.stderr

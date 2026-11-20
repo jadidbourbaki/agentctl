@@ -42,7 +42,7 @@ serve gguf:
 
 # Start a ReAct run and print its run ID.
 react model prompt:
-    @uv run --locked --no-sync agent-runner start -- uv run --locked --script examples/react.py --model "$1" -- "$2"
+    @PYDANTIC_AI_NO_BANNER=1 uv run --locked --no-sync agent-runner start -- uv run --locked --script examples/react.py --model "$1" -- "$2"
 
 fmt:
     uv run --locked --no-sync ruff format

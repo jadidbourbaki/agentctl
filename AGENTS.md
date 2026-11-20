@@ -1,10 +1,19 @@
 # AGENTS.md
 
 Agent Runner starts local commands and controls their process groups. The
-ReAct example uses Pydantic AI and an existing inference server.
+ReAct example uses Pydantic Deep and an existing inference server.
 
 Apply these project conventions from Orla, Braid, Shared Cache World Model,
-and Éire Society.
+Falafel, and Éire Society.
+
+## Minimal code and operations
+
+- Search existing APIs, CLI flags, and configuration before writing code.
+  Check candidates against the requirements they must meet.
+- Configure an existing agent through its own command or environment.
+  Use its framework for the agent loop. Keep dependency environments separate.
+- Keep each operational recipe to one command. Put logic that needs testing
+  in Python and add abstractions when a concrete use calls for them.
 
 ## Writing
 
@@ -39,8 +48,10 @@ and Éire Society.
 - Put runner dependencies in project dependencies and development tools
   in the dev dependency group.
 - Type every function signature. Use built-in generic types and union
-  syntax. Use dataclasses or Pydantic models for data crossing a boundary
-  when that structure helps callers.
+  syntax. Import annotations from __future__ immediately after the module
+  docstring.
+- Validate external data with Pydantic models and pass those models across
+  function boundaries. Use frozen dataclasses for internal value objects.
 - Keep imports at module scope. Allow a local import for an optional
   dependency or an unavoidable cycle and explain the reason.
 - Use descriptive names. Name intermediate results when they explain

@@ -11,7 +11,9 @@ import sys
 from pathlib import Path
 from uuid import UUID, uuid4
 
-from .supervisor import CONTROL, LOG, RESULT
+from pydantic import ValidationError
+
+from .supervisor import CONTROL, LOG, RESULT, Status
 
 
 def state_directory() -> Path:
@@ -41,10 +43,10 @@ def start(directory: Path, command: list[str]) -> str:
     return run_id
 
 
-def request(run_directory: Path, command: str) -> str:
+def request(run_directory: Path, command: str) -> Status:
     result = run_directory / RESULT
     if result.exists():
-        return result.read_text()
+        return Status.model_validate_json(result.read_bytes())
 
     # Relative socket paths keep the state directory outside the Unix path limit.
     os.chdir(run_directory)
@@ -57,13 +59,13 @@ def request(run_directory: Path, command: str) -> str:
             with client.makefile() as response:
                 status = response.read()
             if status:
-                return status
+                return Status.model_validate_json(status)
     except (ConnectionError, FileNotFoundError):
         if not result.exists():
             raise RuntimeError(
                 f"supervisor unavailable. See {run_directory / 'supervisor.log'}"
             ) from None
-    return result.read_text()
+    return Status.model_validate_json(result.read_bytes())
 
 
 def main() -> None:
@@ -91,6 +93,7 @@ def main() -> None:
             with (run_directory / LOG).open("rb") as log:
                 shutil.copyfileobj(log, sys.stdout.buffer)
         else:
-            print(request(run_directory, args.action))
-    except (OSError, RuntimeError) as error:
+            status = request(run_directory, args.action)
+            print(status.model_dump_json())
+    except (OSError, RuntimeError, ValidationError) as error:
         parser.exit(1, f"{parser.prog}: {error}\n")

@@ -86,7 +86,7 @@ just serve /path/to/model.gguf
 
 From a second terminal, start the [ReAct script](examples/react.py). uv
 installs the script's dependencies in a separate environment on its first
-run. Pydantic AI sends your prompt to the model, runs the multiplication
+run. Pydantic Deep sends your prompt to the model, runs the multiplication
 tool when the model requests it, and passes the result back to the model.
 
 ```sh

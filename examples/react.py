@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.13"
-# dependencies = ["pydantic-ai-slim[openai]==2.30.0"]
+# dependencies = ["pydantic-ai-slim[openai]==2.52.0", "pydantic-deep==0.3.50"]
 # ///
 
 """Run a tool-using example against an OpenAI-compatible chat endpoint."""
@@ -10,9 +10,10 @@ from __future__ import annotations
 import argparse
 import os
 
-from pydantic_ai import Agent, UsageLimits
+from pydantic_ai import UsageLimits
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
+from pydantic_deep import create_deep_agent, create_default_deps
 
 
 def multiply(left: int, right: int) -> int:
@@ -35,12 +36,24 @@ def main() -> None:
         api_key=os.environ.get("OPENAI_API_KEY") or "local",
     )
     model = OpenAIChatModel(args.model, provider=provider)
-    agent = Agent(
-        model,
+    agent = create_deep_agent(
+        model=model,
         instructions="Use the multiply tool for multiplication and report the resulting integer.",
+        include_filesystem=False,
+        include_subagents=False,
+        include_skills=False,
+        include_todo=False,
+        include_memory=False,
+        include_history_archive=False,
+        include_monitoring=False,
+        cost_tracking=False,
+        web_search=False,
+        web_fetch=False,
     )
     agent.tool_plain(multiply)
-    result = agent.run_sync(args.prompt, usage_limits=UsageLimits(request_limit=8))
+    result = agent.run_sync(
+        args.prompt, deps=create_default_deps(), usage_limits=UsageLimits(request_limit=8)
+    )
     print(result.output)
 
 

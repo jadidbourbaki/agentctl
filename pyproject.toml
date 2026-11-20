@@ -3,7 +3,7 @@ name = "agent-runner"
 version = "0.1.0"
 description = "A local process runner for interruptible agent experiments"
 requires-python = ">=3.13"
-dependencies = []
+dependencies = ["pydantic==2.14.4"]
 
 [project.scripts]
 agent-runner = "agent_runner.cli:main"
