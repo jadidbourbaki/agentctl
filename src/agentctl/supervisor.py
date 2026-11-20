@@ -7,8 +7,10 @@ import signal
 import socket
 import subprocess
 import sys
+import termios
 import time
-from contextlib import suppress
+from collections.abc import Iterator
+from contextlib import contextmanager, suppress
 from pathlib import Path
 from select import select
 from typing import Literal
@@ -104,8 +106,56 @@ def supervise(
     finish(process, status)
 
 
+@contextmanager
+def terminal_process(command: list[str], directory: Path) -> Iterator[subprocess.Popen[bytes]]:
+    terminal = sys.stdin.fileno()
+    foreground_group = os.tcgetpgrp(terminal)
+    if foreground_group != os.getpgrp():
+        raise RuntimeError("--tty must run in the foreground")
+    settings = termios.tcgetattr(terminal)
+    read_fd, write_fd = os.pipe()
+
+    # Wait for the terminal handoff before the child starts reading from it.
+    with os.fdopen(read_fd, "rb"), os.fdopen(write_fd, "wb", buffering=0) as gate:
+        process = subprocess.Popen(
+            [sys.executable, "-m", "agentctl.supervisor", "--tty-child", str(read_fd), *command],
+            cwd=directory,
+            process_group=0,
+            pass_fds=(read_fd,),
+        )
+        previous_handler = signal.signal(signal.SIGTTOU, signal.SIG_IGN)
+        try:
+            os.tcsetpgrp(terminal, process.pid)
+            gate.write(b"1")
+            yield process
+        finally:
+            with suppress(OSError, termios.error):
+                os.tcsetpgrp(terminal, foreground_group)
+                termios.tcsetattr(terminal, termios.TCSANOW, settings)
+            signal.signal(signal.SIGTTOU, previous_handler)
+            if process.returncode is None:
+                kill_group(process.pid)
+                process.wait()
+
+
+def exec_terminal_child(args: list[str]) -> None:
+    with os.fdopen(int(args[0]), "rb", buffering=0) as gate:
+        if gate.read(1) != b"1":
+            raise SystemExit(1)
+    signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+    os.execvp(args[1], args[1:])
+
+
 def main() -> None:
-    run_directory = Path(sys.argv[1])
+    args = sys.argv[1:]
+    if args[0] == "--tty-child":
+        exec_terminal_child(args[1:])
+        return
+    terminal = args[0] == "--tty"
+    if terminal:
+        args = args[1:]
+
+    run_directory = Path(args[0])
     work_directory = Path.cwd()
     os.chdir(run_directory)
     child_events, signal_writer = socket.socketpair()
@@ -115,9 +165,16 @@ def main() -> None:
         signal.signal(signal.SIGCHLD, lambda *_: None)
         listener.bind(CONTROL)
         listener.listen()
+        if terminal:
+            with terminal_process(args[1:], work_directory) as process:
+                supervise(listener, child_events, process)
+            assert process.returncode is not None
+            returncode = process.returncode
+            raise SystemExit(returncode if returncode >= 0 else 128 - returncode)
+
         with Path(LOG).open("ab", buffering=0) as log:
             process = subprocess.Popen(
-                sys.argv[2:],
+                args[1:],
                 start_new_session=True,
                 stdin=subprocess.DEVNULL,
                 stdout=log,
@@ -135,4 +192,7 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except (OSError, RuntimeError, termios.error) as error:
+        raise SystemExit(f"agentctl: {error}") from None

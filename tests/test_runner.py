@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import json
 import os
+import pty
 import signal
 import subprocess
 import sys
 import time
 from collections.abc import Iterator
 from pathlib import Path
+from select import select
 from uuid import uuid4
 
 import pytest
@@ -153,3 +155,48 @@ def test_ambiguous_short_id_is_rejected(runner: Runner) -> None:
     result = runner.invoke("resume", prefix)
     assert result.returncode == 1
     assert "ambiguous" in result.stderr
+
+
+def read_terminal(master: int, expected: bytes) -> None:
+    data = bytearray()
+    deadline = time.monotonic() + 8
+    while expected not in data:
+        readable, _, _ = select([master], [], [], max(0, deadline - time.monotonic()))
+        assert readable, data.decode(errors="replace")
+        data.extend(os.read(master, 1024))
+
+
+def test_tty_preserves_interactive_input_after_resume(runner: Runner) -> None:
+    pid, master = pty.fork()
+    if pid == 0:
+        os.execve(
+            sys.executable,
+            [
+                sys.executable,
+                "-c",
+                "from agentctl.cli import main; main()",
+                "run",
+                "--tty",
+                "sh",
+                "-c",
+                'echo ready; read -r line; echo "received: $line"; exit 7',
+            ],
+            {**os.environ, "AGENTCTL_STATE_DIR": str(runner.directory)},
+        )
+
+    try:
+        read_terminal(master, b"ready")
+        run_id = runner.call("list").splitlines()[1].split()[0]
+        suspended = json.loads(runner.call("suspend", run_id))
+        assert suspended["state"] == "suspended"
+        resumed = json.loads(runner.call("resume", run_id))
+        assert resumed["state"] == "running"
+        assert resumed["pid"] == suspended["pid"]
+
+        os.write(master, b"terminal input\n")
+        read_terminal(master, b"received: terminal input")
+        assert runner.wait_for_exit(run_id) == 7
+    finally:
+        os.close(master)
+        _, status = os.waitpid(pid, 0)
+    assert os.waitstatus_to_exitcode(status) == 7

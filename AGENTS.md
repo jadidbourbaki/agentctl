@@ -1,7 +1,7 @@
 # AGENTS.md
 
 agentctl starts local commands and controls their process groups. The
-demo runs the Claude Code CLI in print mode.
+demo runs Claude Code in an attached terminal.
 
 Apply these project conventions from Orla, Braid, Shared Cache World Model,
 Falafel, and Éire Society.

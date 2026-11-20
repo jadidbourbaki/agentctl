@@ -25,6 +25,7 @@ SHORT_ID_LENGTH = 8
 class RunCommand(BaseModel):
     executable: str
     name: str | None = None
+    tty: bool = False
 
 
 def state_directories() -> list[Path]:
@@ -91,19 +92,25 @@ def command_name(run_directory: Path) -> str:
     return "".join(character if character.isprintable() else "?" for character in name)
 
 
-def start(directory: Path, command: list[str], name: str | None) -> str:
+def start(directory: Path, command: list[str], name: str | None, tty: bool) -> str:
+    if tty and not (sys.stdin.isatty() and sys.stdout.isatty()):
+        raise RuntimeError("--tty needs terminal input and output")
     run_id = uuid4().hex
     run_directory = directory / run_id
     run_directory.mkdir(mode=0o700, parents=True)
-    command_record = RunCommand(executable=Path(command[0]).name, name=name)
+    command_record = RunCommand(executable=Path(command[0]).name, name=name, tty=tty)
     record = run_directory / "command.tmp"
     record.write_text(command_record.model_dump_json())
     record.replace(run_directory / COMMAND)
     if command[0].endswith(".py"):
         command = [sys.executable, *command]
+    supervisor_args = [sys.executable, "-m", "agentctl.supervisor"]
+    if tty:
+        os.execv(sys.executable, [*supervisor_args, "--tty", str(run_directory), *command])
+
     with (run_directory / "supervisor.log").open("wb") as log:
         supervisor = subprocess.Popen(
-            [sys.executable, "-m", "agentctl.supervisor", str(run_directory), *command],
+            [*supervisor_args, str(run_directory), *command],
             start_new_session=True,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
@@ -148,6 +155,7 @@ def main() -> None:
         "run", aliases=["start"], help="start a command and print its run ID"
     )
     launch.add_argument("-n", "--name", help="name to show in the run list")
+    launch.add_argument("--tty", action="store_true", help="run in the current terminal")
     launch.add_argument("command", nargs=argparse.REMAINDER)
     listing = actions.add_parser("list", help="show active runs")
     listing.add_argument("--all", action="store_true", help="include finished and unavailable runs")
@@ -166,7 +174,7 @@ def main() -> None:
                 command = command[1:]
             if not command:
                 launch.error("a command is required")
-            print(start(roots[0], command, args.name))
+            print(start(roots[0], command, args.name, args.tty))
             return
 
         runs = run_directories(roots)
@@ -176,6 +184,9 @@ def main() -> None:
         run_directory = find_run(runs, args.run_id)
         if args.action == "logs":
             log_path = run_directory / LOG
+            record = run_directory / COMMAND
+            if record.exists() and RunCommand.model_validate_json(record.read_bytes()).tty:
+                raise RuntimeError("this run writes output to its terminal")
             if args.follow:
                 os.execlp("tail", "tail", "-n", "+1", "-f", str(log_path))
             with log_path.open("rb") as log:
