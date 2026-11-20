@@ -1,7 +1,7 @@
 # AGENTS.md
 
-Agent Runner starts local commands and controls their process groups. The
-ReAct example uses Pydantic Deep and an existing inference server.
+agentctl starts local commands and controls their process groups. The
+incident example uses Pydantic Deep and an existing inference server.
 
 Apply these project conventions from Orla, Braid, Shared Cache World Model,
 Falafel, and Éire Society.

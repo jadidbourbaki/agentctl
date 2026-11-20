@@ -18,7 +18,8 @@ from .supervisor import CONTROL, LOG, RESULT, Status
 
 def state_directory() -> Path:
     default = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state")
-    return Path(os.environ.get("AGENT_RUNNER_STATE_DIR") or default / "agent-runner").resolve()
+    configured = os.environ.get("AGENTCTL_STATE_DIR") or os.environ.get("AGENT_RUNNER_STATE_DIR")
+    return Path(configured or default / "agentctl").resolve()
 
 
 def start(directory: Path, command: list[str]) -> str:
@@ -29,7 +30,7 @@ def start(directory: Path, command: list[str]) -> str:
         command = [sys.executable, *command]
     with (run_directory / "supervisor.log").open("wb") as log:
         supervisor = subprocess.Popen(
-            [sys.executable, "-m", "agent_runner.supervisor", str(run_directory), *command],
+            [sys.executable, "-m", "agentctl.supervisor", str(run_directory), *command],
             start_new_session=True,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
@@ -71,7 +72,9 @@ def request(run_directory: Path, command: str) -> Status:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     actions = parser.add_subparsers(dest="action", required=True)
-    launch = actions.add_parser("start", help="start a command and print its run ID")
+    launch = actions.add_parser(
+        "run", aliases=["start"], help="start a command and print its run ID"
+    )
     launch.add_argument("command", nargs=argparse.REMAINDER)
     for action in ("status", "suspend", "resume", "stop", "logs"):
         actions.add_parser(action).add_argument("run_id", type=UUID)
@@ -79,7 +82,7 @@ def main() -> None:
     directory = state_directory()
 
     try:
-        if args.action == "start":
+        if args.action in {"run", "start"}:
             command = args.command
             if command[:1] == ["--"]:
                 command = command[1:]
@@ -89,6 +92,12 @@ def main() -> None:
             return
 
         run_directory = directory / args.run_id.hex
+        if not run_directory.exists() and not (
+            os.environ.get("AGENTCTL_STATE_DIR") or os.environ.get("AGENT_RUNNER_STATE_DIR")
+        ):
+            legacy_run = directory.with_name("agent-runner") / args.run_id.hex
+            if legacy_run.is_dir():
+                run_directory = legacy_run
         if args.action == "logs":
             with (run_directory / LOG).open("rb") as log:
                 shutil.copyfileobj(log, sys.stdout.buffer)

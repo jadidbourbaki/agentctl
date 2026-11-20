@@ -8,41 +8,45 @@ default:
 setup:
     uv sync --locked
 
-# Run the CLI with arbitrary arguments.
-run *args:
-    @uv run --locked --no-sync agent-runner "$@"
+# Install agentctl on PATH.
+install:
+    uv tool install .
 
 # Start a command and print its run ID.
-start command *args:
-    @uv run --locked --no-sync agent-runner start -- "$@"
+run command *args:
+    @uv run --locked --no-sync agentctl run -- "$@"
 
 # Show the run state, PID, and exit code.
 status id:
-    @uv run --locked --no-sync agent-runner status "$1"
+    @uv run --locked --no-sync agentctl status "$1"
 
 # Suspend the process group.
 suspend id:
-    @uv run --locked --no-sync agent-runner suspend "$1"
+    @uv run --locked --no-sync agentctl suspend "$1"
 
 # Resume the process group.
 resume id:
-    @uv run --locked --no-sync agent-runner resume "$1"
+    @uv run --locked --no-sync agentctl resume "$1"
 
 # Print the run output.
 logs id:
-    @uv run --locked --no-sync agent-runner logs "$1"
+    @uv run --locked --no-sync agentctl logs "$1"
 
 # Terminate the process group.
 stop id:
-    @uv run --locked --no-sync agent-runner stop "$1"
+    @uv run --locked --no-sync agentctl stop "$1"
 
 # Serve a GGUF model on loopback with the model name local.
 serve gguf:
     llama-server --model "$1" --alias local --jinja --host 127.0.0.1 --port 8080 --api-key local
 
-# Start a ReAct run and print its run ID.
-react model prompt:
-    @PYDANTIC_AI_NO_BANNER=1 uv run --locked --no-sync agent-runner start -- uv run --locked --script examples/react.py --model "$1" -- "$2"
+# Run the Pydantic Deep incident agent.
+incident *args:
+    @PYDANTIC_AI_NO_BANNER=1 uv run --locked --script examples/incident.py run "$@"
+
+# Watch an incident run.
+watch id:
+    @uv run --locked --script examples/incident.py watch "$1"
 
 fmt:
     uv run --locked --no-sync ruff format
@@ -52,8 +56,8 @@ lint:
 
 typecheck:
     uv run --locked --no-sync ty check src tests
-    uv sync --locked --script examples/react.py
-    uv run --locked --no-sync ty check --python "$(uv python find --script examples/react.py)" examples/react.py
+    uv sync --locked --script examples/incident.py
+    uv run --locked --no-sync ty check --python "$(uv python find --script examples/incident.py)" examples/incident.py
 
 test:
     uv run --locked --no-sync pytest

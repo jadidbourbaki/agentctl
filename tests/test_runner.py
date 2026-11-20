@@ -20,8 +20,8 @@ class Runner:
 
     def invoke(self, *args: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
-            [sys.executable, "-c", "from agent_runner.cli import main; main()", *args],
-            env={**os.environ, "AGENT_RUNNER_STATE_DIR": str(self.directory)},
+            [sys.executable, "-c", "from agentctl.cli import main; main()", *args],
+            env={**os.environ, "AGENTCTL_STATE_DIR": str(self.directory)},
             capture_output=True,
             text=True,
             timeout=10,
@@ -33,7 +33,7 @@ class Runner:
         return result.stdout.strip()
 
     def start(self, *args: str) -> str:
-        run_id = self.call("start", "--", *args)
+        run_id = self.call("run", *args)
         self.runs.append(run_id)
         return run_id
 
