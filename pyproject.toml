@@ -1,5 +1,5 @@
 [project]
-name = "agent-energy"
+name = "agent-runner"
 version = "0.1.0"
 description = "A local process runner for interruptible agent experiments"
 requires-python = ">=3.13"
@@ -9,8 +9,8 @@ dependencies = []
 react = ["pydantic-ai-slim[openai]==2.30.0"]
 
 [project.scripts]
-agent-energy = "agent_energy.cli:main"
-agent-react = "agent_energy.react:main"
+agent-runner = "agent_runner.cli:main"
+agent-react = "agent_runner.react:main"
 
 [build-system]
 requires = ["uv_build==0.13.7"]

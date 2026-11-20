@@ -1,4 +1,4 @@
-"""Admit a command or control a run by its ID."""
+"""Start a command or control a run by its ID."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from .supervisor import CONTROL, LOG, RESULT
 
 def state_directory() -> Path:
     default = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state")
-    return Path(os.environ.get("AGENT_ENERGY_STATE_DIR") or default / "agent-energy").resolve()
+    return Path(os.environ.get("AGENT_RUNNER_STATE_DIR") or default / "agent-runner").resolve()
 
 
 def start(directory: Path, command: list[str]) -> str:
@@ -27,7 +27,7 @@ def start(directory: Path, command: list[str]) -> str:
         command = [sys.executable, *command]
     with (run_directory / "supervisor.log").open("wb") as log:
         supervisor = subprocess.Popen(
-            [sys.executable, "-m", "agent_energy.supervisor", str(run_directory), *command],
+            [sys.executable, "-m", "agent_runner.supervisor", str(run_directory), *command],
             start_new_session=True,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
@@ -69,7 +69,7 @@ def request(run_directory: Path, command: str) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     actions = parser.add_subparsers(dest="action", required=True)
-    launch = actions.add_parser("start", help="admit a command and print its run ID")
+    launch = actions.add_parser("start", help="start a command and print its run ID")
     launch.add_argument("command", nargs=argparse.REMAINDER)
     for action in ("status", "suspend", "resume", "stop", "logs"):
         actions.add_parser(action).add_argument("run_id", type=UUID)

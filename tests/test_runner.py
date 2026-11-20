@@ -19,8 +19,8 @@ class Runner:
 
     def call(self, *args: str) -> str:
         result = subprocess.run(
-            [sys.executable, "-c", "from agent_energy.cli import main; main()", *args],
-            env={**os.environ, "AGENT_ENERGY_STATE_DIR": str(self.directory)},
+            [sys.executable, "-c", "from agent_runner.cli import main; main()", *args],
+            env={**os.environ, "AGENT_RUNNER_STATE_DIR": str(self.directory)},
             capture_output=True,
             text=True,
             timeout=10,
@@ -93,3 +93,20 @@ def test_suspend_and_resume_include_child_process(runner: Runner) -> None:
     runner.call("suspend", run_id)
     runner.call("stop", run_id)
     assert runner.wait_for_exit(run_id) == -signal.SIGTERM
+
+
+def test_stop_kills_a_process_that_ignores_sigterm(runner: Runner) -> None:
+    run_id = runner.start(
+        sys.executable,
+        "-c",
+        "import signal, time\nsignal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
+        "print('ready', flush=True)\ntime.sleep(60)",
+    )
+    for _ in range(100):
+        if runner.call("logs", run_id) == "ready":
+            break
+        time.sleep(0.02)
+    assert runner.call("logs", run_id) == "ready"
+
+    runner.call("stop", run_id)
+    assert runner.wait_for_exit(run_id) == -signal.SIGKILL

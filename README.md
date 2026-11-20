@@ -1,71 +1,118 @@
-# Agent Energy
+# Agent Runner
 
-Agent Energy admits a local command, gives it a run ID, and lets you suspend
-and resume the same live process. Use it to compare when agents run while
-keeping inference on an existing model server.
+Agent Runner starts a local command and gives it a run ID. You can suspend
+the command and its child processes, resume them, and read their output.
+The runner supports macOS and Linux.
 
-## Run a command
+## Setup
 
-Install [uv](https://docs.astral.sh/uv/), then run from the repository root.
-The runner uses Python 3.13 or newer.
+Install Python 3.13 or newer, [uv](https://docs.astral.sh/uv/), and
+[just](https://just.systems/). From the repository root, install the runner,
+the ReAct example, and the development tools.
 
 ```sh
-uv sync
-run=$(uv run agent-energy start -- ./my-agent --prompt "Summarize this file")
-uv run agent-energy status "$run"
-uv run agent-energy suspend "$run"
-uv run agent-energy resume "$run"
-uv run agent-energy logs "$run"
-uv run agent-energy stop "$run"
+just setup
 ```
 
-Pass a Python script with `start -- /path/to/agent.py arg`. The runner uses
-its Python interpreter for a bare `.py` file. Pass an explicit interpreter or
-another environment's command when the agent needs its own dependencies.
-The command inherits the caller's working directory and environment.
-Each run reads from closed standard input and writes combined output to its log.
+List the available recipes.
 
-Runs continue after the start command returns. Run logs and final return codes
-live under `${XDG_STATE_HOME:-$HOME/.local/state}/agent-energy`. Set
-`AGENT_ENERGY_STATE_DIR` to choose a different directory.
+```sh
+just
+```
 
-On macOS and Linux, each run gets its own process group. Suspend keeps the
-group in memory and resume continues it with the same PID. Stop sends
-`SIGTERM`, wakes a suspended group so it can handle the signal, and gives it
-three seconds before forcing exit. The run ends when its original command
-exits, and the supervisor cleans up processes still in the group. Commands
-that daemonize into another process group manage those processes themselves.
+## Process control
 
-A remote inference request can continue on the model server while the local
-agent is suspended. Suspend at a tool or request boundary if the experiment
-requires inference to be idle. A host restart ends live runs.
+Start a five-minute test process and save its run ID. You can pass any
+executable and its arguments to the start recipe. Pass a Python file
+directly to use the runner's Python interpreter, or supply an explicit
+interpreter for a script with its own environment.
+
+```sh
+run_id=$(just start sleep 300)
+```
+
+Check the run's state and process ID. The exit code is null while the
+process is alive.
+
+```sh
+just status "$run_id"
+```
+
+Suspend the process group. The processes stay in memory.
+
+```sh
+just suspend "$run_id"
+```
+
+Resume the same process group.
+
+```sh
+just resume "$run_id"
+```
+
+Read the command's standard output and standard error. The sleep example
+produces no output.
+
+```sh
+just logs "$run_id"
+```
+
+Terminate the run. The runner gives the process group three seconds to
+handle SIGTERM before sending SIGKILL.
+
+```sh
+just stop "$run_id"
+```
+
+Commands inherit the caller's working directory and environment. The runner
+closes standard input and keeps the output and exit code after the command
+exits. Runs end when the host restarts. Child processes that create their own
+process groups manage their own lifecycles.
+
+The runner stores logs and exit codes in the agent-runner directory under
+XDG_STATE_HOME. The parent defaults to ~/.local/state. Set
+AGENT_RUNNER_STATE_DIR to choose another directory.
 
 ## ReAct example
 
-Start [llama-server](https://github.com/ggml-org/llama.cpp/tree/master/tools/server)
-with a tool-capable GGUF model.
+Install [llama-server](https://github.com/ggml-org/llama.cpp/tree/master/tools/server)
+and choose a GGUF model that supports tool calls. Replace the example path
+with your model file. The serve recipe exposes the model as local on port
+8080 and enables tool calls.
 
 ```sh
-llama-server -m /path/to/model.gguf --alias local --jinja \
-  --host 127.0.0.1 --port 8080 --api-key local
+just serve /path/to/model.gguf
 ```
 
-In another terminal, start a run and inspect its output.
+From a second terminal, start the example agent. Pydantic AI sends your
+prompt to the model, runs the multiplication tool when the model requests
+it, and passes the result back to the model.
 
 ```sh
-uv sync --extra react
-run=$(uv run --extra react agent-energy start -- agent-react \
-  --base-url http://127.0.0.1:8080/v1 --model local \
-  "Use the multiplication tool to compute 37 times 61.")
-uv run --extra react agent-energy status "$run"
-uv run --extra react agent-energy logs "$run"
+run_id=$(OPENAI_BASE_URL=http://127.0.0.1:8080/v1 OPENAI_API_KEY=local \
+  just react local 'Use the multiplication tool to compute 37 times 61.')
 ```
 
-Pydantic AI handles the model, tool call, tool result, and final response.
-The example uses a single multiplication tool and allows up to eight model
-requests. Use `--base-url` or `OPENAI_BASE_URL` to point it at vLLM, SGLang,
-Orla, or another OpenAI-compatible chat endpoint. Use the server's model name
-and enable its tool-call parser where required. Set `OPENAI_API_KEY` when the
-endpoint requires credentials.
+Read the log after the run exits. The answer should include 2257.
 
-Run `just check` for formatting, lint, type checks, and lifecycle tests.
+```sh
+just logs "$run_id"
+```
+
+For vLLM, SGLang, or Orla, use the model name served by the endpoint and
+configure the variables below. Enable the model server's tool-call parser
+if the server requires one. Suspending the local agent leaves the inference
+server free to finish requests it already received.
+
+| Environment variable | Default | Purpose |
+| --- | --- | --- |
+| OPENAI_BASE_URL | http://127.0.0.1:8080/v1 | OpenAI-compatible chat API base URL. |
+| OPENAI_API_KEY | local | API key sent to the model server. |
+
+## Development checks
+
+Run the formatter check, lint, type checker, and lifecycle tests.
+
+```sh
+just check
+```

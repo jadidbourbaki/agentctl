@@ -12,6 +12,7 @@ import time
 from contextlib import suppress
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from select import select
 
 CONTROL = "control.sock"
 RESULT = "result.json"
@@ -56,30 +57,7 @@ def kill_group(group: int) -> None:
         os.killpg(group, signal.SIGKILL)
 
 
-def supervise(listener: socket.socket, process: subprocess.Popen[bytes]) -> None:
-    status = Status("running", process.pid)
-    stop_deadline = None
-    while not has_exited(process.pid):
-        if stop_deadline is not None and time.monotonic() >= stop_deadline:
-            break
-        try:
-            connection, _ = listener.accept()
-        except TimeoutError:
-            continue
-        with connection:
-            connection.settimeout(0.5)
-            try:
-                with connection.makefile("rb") as request:
-                    command = request.read(32)
-                deadline = control(process.pid, status, command)
-            except TimeoutError:
-                continue
-            except ProcessLookupError:
-                break
-            if deadline is not None:
-                stop_deadline = deadline
-            with suppress(ConnectionError, TimeoutError):
-                connection.sendall(status.to_json().encode())
+def finish(process: subprocess.Popen[bytes], status: Status) -> None:
     # The unreaped leader reserves the group ID while we clean up descendants.
     kill_group(process.pid)
     status.returncode = process.wait()
@@ -88,14 +66,56 @@ def supervise(listener: socket.socket, process: subprocess.Popen[bytes]) -> None
     Path("result.tmp").replace(RESULT)
 
 
+def supervise(
+    listener: socket.socket, child_events: socket.socket, process: subprocess.Popen[bytes]
+) -> None:
+    status = Status("running", process.pid)
+    stop_deadline = None
+    while not has_exited(process.pid):
+        timeout = None
+        if stop_deadline is not None:
+            timeout = stop_deadline - time.monotonic()
+            if timeout <= 0:
+                break
+        readable, _, _ = select([listener, child_events], [], [], timeout)
+        if not readable:
+            break
+        if child_events in readable:
+            child_events.recv(4096)
+            continue
+        connection, _ = listener.accept()
+        with connection:
+            connection.settimeout(0.5)
+            try:
+                with connection.makefile("rb") as request:
+                    command = request.read(32)
+            except (ConnectionError, TimeoutError):
+                continue
+            try:
+                deadline = control(process.pid, status, command)
+            except ProcessLookupError:
+                finish(process, status)
+                deadline = None
+            if deadline is not None:
+                stop_deadline = deadline
+            with suppress(ConnectionError, TimeoutError):
+                connection.sendall(status.to_json().encode())
+        if status.state == "exited":
+            return
+    finish(process, status)
+
+
 def main() -> None:
     run_directory = Path(sys.argv[1])
     work_directory = Path.cwd()
     os.chdir(run_directory)
-    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as listener:
+    child_events, signal_writer = socket.socketpair()
+    with child_events, signal_writer, socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as listener:
+        signal_writer.setblocking(False)
+        signal.set_wakeup_fd(signal_writer.fileno())
+        signal.signal(signal.SIGCHLD, lambda *_: None)
         listener.bind(CONTROL)
         listener.listen()
-        listener.settimeout(0.1)
         with Path(LOG).open("ab", buffering=0) as log:
             process = subprocess.Popen(
                 sys.argv[2:],
@@ -108,9 +128,7 @@ def main() -> None:
             )
         try:
             print("ready", flush=True)
-            sys.stdout.close()
-            os.close(1)
-            supervise(listener, process)
+            supervise(listener, child_events, process)
         finally:
             if process.returncode is None:
                 kill_group(process.pid)
