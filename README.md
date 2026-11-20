@@ -14,9 +14,10 @@ just install
 
 ## Claude Code demo
 
-The recording shows Claude Code pause mid-task and resume with the same PID.
+Claude Code pauses while reading its first file. After resuming with the
+same PID, it reads the remaining files and completes the review.
 
-https://github.com/user-attachments/assets/98d4b150-b696-4f9b-a828-546651cae063
+https://github.com/user-attachments/assets/79a29cf2-50a6-4bf0-af06-3dfceed348b6
 
 With [Claude Code](https://code.claude.com/docs/en/overview) installed and
 configured, open its interactive UI in your terminal.
