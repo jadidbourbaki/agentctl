@@ -4,9 +4,9 @@ set positional-arguments
 default:
     @just --list
 
-# Install the runner, ReAct example, and development tools.
+# Install the runner and development tools.
 setup:
-    uv sync --locked --extra react
+    uv sync --locked
 
 # Run the CLI with arbitrary arguments.
 run *args:
@@ -42,7 +42,7 @@ serve gguf:
 
 # Start a ReAct run and print its run ID.
 react model prompt:
-    @uv run --locked --no-sync agent-runner start -- agent-react --model "$1" -- "$2"
+    @uv run --locked --no-sync agent-runner start -- uv run --locked --script examples/react.py --model "$1" -- "$2"
 
 fmt:
     uv run --locked --no-sync ruff format
@@ -51,7 +51,9 @@ lint:
     uv run --locked --no-sync ruff check
 
 typecheck:
-    uv run --locked --no-sync ty check
+    uv run --locked --no-sync ty check src tests
+    uv sync --locked --script examples/react.py
+    uv run --locked --no-sync ty check --python "$(uv python find --script examples/react.py)" examples/react.py
 
 test:
     uv run --locked --no-sync pytest

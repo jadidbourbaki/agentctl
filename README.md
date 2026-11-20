@@ -7,8 +7,8 @@ The runner supports macOS and Linux.
 ## Setup
 
 Install Python 3.13 or newer, [uv](https://docs.astral.sh/uv/), and
-[just](https://just.systems/). From the repository root, install the runner,
-the ReAct example, and the development tools.
+[just](https://just.systems/). From the repository root, install the runner
+and the development tools.
 
 ```sh
 just setup
@@ -84,9 +84,10 @@ with your model file. The serve recipe exposes the model as local on port
 just serve /path/to/model.gguf
 ```
 
-From a second terminal, start the example agent. Pydantic AI sends your
-prompt to the model, runs the multiplication tool when the model requests
-it, and passes the result back to the model.
+From a second terminal, start the [ReAct script](examples/react.py). uv
+installs the script's dependencies in a separate environment on its first
+run. Pydantic AI sends your prompt to the model, runs the multiplication
+tool when the model requests it, and passes the result back to the model.
 
 ```sh
 run_id=$(OPENAI_BASE_URL=http://127.0.0.1:8080/v1 OPENAI_API_KEY=local \

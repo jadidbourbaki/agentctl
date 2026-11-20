@@ -5,12 +5,8 @@ description = "A local process runner for interruptible agent experiments"
 requires-python = ">=3.13"
 dependencies = []
 
-[project.optional-dependencies]
-react = ["pydantic-ai-slim[openai]==2.30.0"]
-
 [project.scripts]
 agent-runner = "agent_runner.cli:main"
-agent-react = "agent_runner.react:main"
 
 [build-system]
 requires = ["uv_build==0.13.7"]

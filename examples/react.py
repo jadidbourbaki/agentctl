@@ -1,9 +1,18 @@
+# /// script
+# requires-python = ">=3.13"
+# dependencies = ["pydantic-ai-slim[openai]==2.30.0"]
+# ///
+
 """Run a tool-using example against an OpenAI-compatible chat endpoint."""
 
 from __future__ import annotations
 
 import argparse
 import os
+
+from pydantic_ai import Agent, UsageLimits
+from pydantic_ai.models.openai import OpenAIChatModel
+from pydantic_ai.providers.openai import OpenAIProvider
 
 
 def multiply(left: int, right: int) -> int:
@@ -21,16 +30,6 @@ def main() -> None:
     parser.add_argument("prompt")
     args = parser.parse_args()
 
-    # The ReAct example is an optional install for users running their own agents.
-    try:
-        from pydantic_ai import Agent, UsageLimits
-        from pydantic_ai.models.openai import OpenAIChatModel
-        from pydantic_ai.providers.openai import OpenAIProvider
-    except ModuleNotFoundError as error:
-        if error.name != "pydantic_ai":
-            raise
-        parser.exit(1, "Install the react extra with uv run --extra react agent-react.\n")
-
     provider = OpenAIProvider(
         base_url=args.base_url,
         api_key=os.environ.get("OPENAI_API_KEY") or "local",
@@ -43,3 +42,7 @@ def main() -> None:
     agent.tool_plain(multiply)
     result = agent.run_sync(args.prompt, usage_limits=UsageLimits(request_limit=8))
     print(result.output)
+
+
+if __name__ == "__main__":
+    main()
