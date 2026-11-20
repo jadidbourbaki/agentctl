@@ -14,6 +14,10 @@ just install
 
 ## Claude Code demo
 
+The recording shows Claude Code pause mid-task and resume with the same PID.
+
+https://github.com/user-attachments/assets/98d4b150-b696-4f9b-a828-546651cae063
+
 With [Claude Code](https://code.claude.com/docs/en/overview) installed and
 configured, open its interactive UI in your terminal.
 
