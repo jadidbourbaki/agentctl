@@ -4,28 +4,101 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import shutil
 import socket
 import subprocess
 import sys
+from collections import Counter
+from contextlib import chdir
 from pathlib import Path
 from uuid import UUID, uuid4
 
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from .supervisor import CONTROL, LOG, RESULT, Status
 
+COMMAND = "command.json"
+SHORT_ID_LENGTH = 8
 
-def state_directory() -> Path:
-    default = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state")
+
+class RunCommand(BaseModel):
+    executable: str
+    name: str | None = None
+
+
+def state_directories() -> list[Path]:
     configured = os.environ.get("AGENTCTL_STATE_DIR") or os.environ.get("AGENT_RUNNER_STATE_DIR")
-    return Path(configured or default / "agentctl").resolve()
+    if configured:
+        return [Path(configured).resolve()]
+    default = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state").resolve()
+    return [default / "agentctl", default / "agent-runner"]
 
 
-def start(directory: Path, command: list[str]) -> str:
+def run_directories(roots: list[Path]) -> dict[str, Path]:
+    runs: dict[str, Path] = {}
+    for root in roots:
+        if root.is_dir():
+            for path in root.iterdir():
+                if re.fullmatch(r"[0-9a-f]{32}", path.name) and path.is_dir():
+                    runs.setdefault(path.name, path)
+    return runs
+
+
+def parse_run_id(value: str) -> str:
+    if re.fullmatch(r"[0-9a-fA-F]{8,32}", value):
+        return value.lower()
+    try:
+        return UUID(value).hex
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("use a run UUID or at least eight hex digits") from error
+
+
+def find_run(runs: dict[str, Path], run_id: str) -> Path:
+    matches = [path for name, path in runs.items() if name.startswith(run_id)]
+    if not matches:
+        raise RuntimeError(f"no run matches {run_id}")
+    if len(matches) > 1:
+        raise RuntimeError(f"run ID {run_id} is ambiguous. Use more digits.")
+    return matches[0]
+
+
+def list_runs(runs: dict[str, Path], include_finished: bool) -> None:
+    prefix_counts = Counter(run_id[:SHORT_ID_LENGTH] for run_id in runs)
+    id_width = 32 if any(count > 1 for count in prefix_counts.values()) else 8
+    print(f"{'ID':<{id_width}}  {'STATE':<12} {'PID':>7}  COMMAND")
+    for run_id, path in sorted(runs.items()):
+        prefix = run_id[:SHORT_ID_LENGTH]
+        displayed_id = prefix if prefix_counts[prefix] == 1 else run_id
+        try:
+            status = request(path, "status")
+        except (OSError, RuntimeError, ValidationError):
+            status = None
+        if not include_finished and (status is None or status.state == "exited"):
+            continue
+        state = status.state if status is not None else "unavailable"
+        pid = str(status.pid) if status is not None else "-"
+        print(f"{displayed_id:<{id_width}}  {state:<12} {pid:>7}  {command_name(path)}")
+
+
+def command_name(run_directory: Path) -> str:
+    try:
+        record = (run_directory / COMMAND).read_bytes()
+    except FileNotFoundError:
+        return "-"
+    command = RunCommand.model_validate_json(record)
+    name = command.name or command.executable
+    return "".join(character if character.isprintable() else "?" for character in name)
+
+
+def start(directory: Path, command: list[str], name: str | None) -> str:
     run_id = uuid4().hex
     run_directory = directory / run_id
     run_directory.mkdir(mode=0o700, parents=True)
+    command_record = RunCommand(executable=Path(command[0]).name, name=name)
+    record = run_directory / "command.tmp"
+    record.write_text(command_record.model_dump_json())
+    record.replace(run_directory / COMMAND)
     if command[0].endswith(".py"):
         command = [sys.executable, *command]
     with (run_directory / "supervisor.log").open("wb") as log:
@@ -50,9 +123,8 @@ def request(run_directory: Path, command: str) -> Status:
         return Status.model_validate_json(result.read_bytes())
 
     # Relative socket paths keep the state directory outside the Unix path limit.
-    os.chdir(run_directory)
     try:
-        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+        with chdir(run_directory), socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
             client.settimeout(2)
             client.connect(CONTROL)
             client.sendall(command.encode())
@@ -75,11 +147,17 @@ def main() -> None:
     launch = actions.add_parser(
         "run", aliases=["start"], help="start a command and print its run ID"
     )
+    launch.add_argument("-n", "--name", help="name to show in the run list")
     launch.add_argument("command", nargs=argparse.REMAINDER)
-    for action in ("status", "suspend", "resume", "stop", "logs"):
-        actions.add_parser(action).add_argument("run_id", type=UUID)
+    listing = actions.add_parser("list", help="show active runs")
+    listing.add_argument("--all", action="store_true", help="include finished and unavailable runs")
+    for action in ("status", "suspend", "resume", "stop"):
+        actions.add_parser(action).add_argument("run_id", type=parse_run_id)
+    logs = actions.add_parser("logs", help="print a run's output")
+    logs.add_argument("run_id", type=parse_run_id)
+    logs.add_argument("-f", "--follow", action="store_true", help="follow new output")
     args = parser.parse_args()
-    directory = state_directory()
+    roots = state_directories()
 
     try:
         if args.action in {"run", "start"}:
@@ -88,18 +166,19 @@ def main() -> None:
                 command = command[1:]
             if not command:
                 launch.error("a command is required")
-            print(start(directory, command))
+            print(start(roots[0], command, args.name))
             return
 
-        run_directory = directory / args.run_id.hex
-        if not run_directory.exists() and not (
-            os.environ.get("AGENTCTL_STATE_DIR") or os.environ.get("AGENT_RUNNER_STATE_DIR")
-        ):
-            legacy_run = directory.with_name("agent-runner") / args.run_id.hex
-            if legacy_run.is_dir():
-                run_directory = legacy_run
+        runs = run_directories(roots)
+        if args.action == "list":
+            list_runs(runs, include_finished=args.all)
+            return
+        run_directory = find_run(runs, args.run_id)
         if args.action == "logs":
-            with (run_directory / LOG).open("rb") as log:
+            log_path = run_directory / LOG
+            if args.follow:
+                os.execlp("tail", "tail", "-n", "+1", "-f", str(log_path))
+            with log_path.open("rb") as log:
                 shutil.copyfileobj(log, sys.stdout.buffer)
         else:
             status = request(run_directory, args.action)

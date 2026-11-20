@@ -1,6 +1,6 @@
 # agentctl
 
-agentctl starts local commands and lets you suspend and resume them by run ID.
+agentctl starts local commands and lets you list, suspend, and resume them.
 It runs on macOS and Linux with Python 3.13 or newer.
 
 ## Install
@@ -12,85 +12,77 @@ From the repository root, install agentctl on your PATH.
 just install
 ```
 
-## Incident demo
+## Claude Code demo
 
-Start [llama-server](https://github.com/ggml-org/llama.cpp/tree/master/tools/server)
-with a tool-capable GGUF model. Replace the example path with your model
-file. The serve recipe exposes the model as local on port 8080.
-
-```sh
-just serve /path/to/model.gguf
-```
-
-From a second terminal, start the Pydantic Deep agent and save its run ID.
-The agent investigates a simulated checkout slowdown by reading deployment,
-latency, and error feeds.
+With [Claude Code](https://code.claude.com/docs/en/overview) installed and
+configured, start a headless source walkthrough. Claude Code reads the
+README and the two runner modules with its Read tool. The name flag labels
+the run as claude in the list.
 
 ```sh
-run=$(agentctl run just incident)
+agentctl run -n claude just claude-review
 ```
 
-Print the run ID so you can use it in another pane.
+List the active runs. The table shows the run ID, state, PID, and command name.
+Use the ID from the table in the commands below.
 
 ```sh
-echo "$run"
+agentctl list
 ```
 
-In a third terminal or split pane, replace RUN_ID with the printed value.
-The terminal UI shows the run state, PID, and agent output as it arrives.
+In another terminal, use jq to follow Claude Code's tool calls and final
+report. Press Ctrl+C to close the view.
 
 ```sh
-just watch RUN_ID
+just review-log RUN_ID
 ```
 
-In the second terminal, suspend the group while the agent reads a feed.
-The output stops updating and the terminal UI shows SUSPENDED.
+Suspend the run. Replace RUN_ID with the ID from the table.
 
 ```sh
-agentctl suspend "$run"
+agentctl suspend RUN_ID
 ```
 
-Resume the group. The agent keeps its PID and continues through the
-remaining feeds. The final report gives the impact, likely cause, and
-next action.
+Resume the same process group.
 
 ```sh
-agentctl resume "$run"
+agentctl resume RUN_ID
 ```
-
-For vLLM, SGLang, or Orla, set OPENAI_BASE_URL to the chat API base URL and
-OPENAI_API_KEY if the server requires credentials. Pass the served model
-name to the incident recipe. The example defaults to local and uses the
-same endpoint for every model call.
 
 ## Process control
 
-Pass any non-interactive command and its arguments to agentctl. Pass a Python
-file directly to use agentctl's interpreter, or pass an explicit interpreter
-to use a different environment.
+Pass any non-interactive command and its arguments to agentctl. The runner
+starts Python files with its own interpreter when you pass a file directly.
 
 ```sh
-run=$(agentctl run sleep 300)
+agentctl run sleep 300
 ```
 
-Read the state, process ID, and exit code. The exit code is null while
-the process is alive.
+Include finished runs when you need a recent run's ID.
 
 ```sh
-agentctl status "$run"
+agentctl list --all
 ```
 
-Read the combined standard output and standard error.
+Show the current state, PID, and exit code. The exit code is null while the
+process is alive. Lifecycle commands accept the displayed ID or the full run
+UUID.
 
 ```sh
-agentctl logs "$run"
+agentctl status RUN_ID
 ```
 
-Terminate the group. agentctl gives it three seconds to handle SIGTERM
-before sending SIGKILL.
+Follow a command's unfiltered output.
 
 ```sh
-agentctl stop "$run"
+agentctl logs --follow RUN_ID
+```
+
+Stop the group. agentctl gives it three seconds to handle SIGTERM before
+sending SIGKILL.
+
+```sh
+agentctl stop RUN_ID
 ```
 
 Commands inherit the caller's working directory and environment. agentctl

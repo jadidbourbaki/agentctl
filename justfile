@@ -16,6 +16,10 @@ install:
 run command *args:
     @uv run --locked --no-sync agentctl run -- "$@"
 
+# List active runs. Pass --all to include history.
+list *args:
+    @uv run --locked --no-sync agentctl list "$@"
+
 # Show the run state, PID, and exit code.
 status id:
     @uv run --locked --no-sync agentctl status "$1"
@@ -40,13 +44,13 @@ stop id:
 serve gguf:
     llama-server --model "$1" --alias local --jinja --host 127.0.0.1 --port 8080 --api-key local
 
-# Run the Pydantic Deep incident agent.
-incident *args:
-    @PYDANTIC_AI_NO_BANNER=1 uv run --locked --script examples/incident.py run "$@"
+# Run a read-only Claude Code walkthrough with live events.
+claude-review:
+    @claude --safe-mode --print --output-format stream-json --verbose --no-session-persistence --strict-mcp-config --tools Read --allowedTools Read --system-prompt "You are a read-only source reviewer. Read only the requested files and rely on the results." -- "Read README.md, src/agentctl/cli.py, and src/agentctl/supervisor.py in separate tool calls. Explain how agentctl discovers runs and pauses and resumes a process group. Cite the functions you read. Answer in at most 100 words."
 
-# Watch an incident run.
-watch id:
-    @uv run --locked --script examples/incident.py watch "$1"
+# Follow the Claude Code walkthrough as readable text. Requires jq.
+review-log id:
+    @agentctl logs --follow "$1" | jq -Rr --unbuffered -f examples/claude-log.jq
 
 fmt:
     uv run --locked --no-sync ruff format
@@ -56,8 +60,6 @@ lint:
 
 typecheck:
     uv run --locked --no-sync ty check src tests
-    uv sync --locked --script examples/incident.py
-    uv run --locked --no-sync ty check --python "$(uv python find --script examples/incident.py)" examples/incident.py
 
 test:
     uv run --locked --no-sync pytest

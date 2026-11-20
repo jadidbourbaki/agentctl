@@ -128,3 +128,28 @@ def test_status_rejects_a_malformed_result(runner: Runner) -> None:
     assert result.returncode == 1
     assert not result.stdout
     assert "pid" in result.stderr
+
+
+def test_list_discovers_active_run_and_accepts_its_short_id(runner: Runner) -> None:
+    completed = runner.start("/bin/echo", "done")
+    assert runner.wait_for_exit(completed) == 0
+    active = runner.start("-n", "worker", "/bin/sleep", "30")
+    active_id = active[:8]
+
+    assert active_id in runner.call("list")
+    assert completed[:8] not in runner.call("list")
+    assert completed[:8] in runner.call("list", "--all")
+    assert "worker" in runner.call("list")
+    assert json.loads(runner.call("suspend", active_id))["state"] == "suspended"
+    assert json.loads(runner.call("resume", active_id))["state"] == "running"
+
+
+def test_ambiguous_short_id_is_rejected(runner: Runner) -> None:
+    prefix = uuid4().hex[:8]
+    for suffix in ("a", "b"):
+        run_path = runner.directory / (prefix + suffix * 24)
+        run_path.mkdir(parents=True)
+
+    result = runner.invoke("resume", prefix)
+    assert result.returncode == 1
+    assert "ambiguous" in result.stderr

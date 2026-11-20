@@ -1,7 +1,7 @@
 # AGENTS.md
 
 agentctl starts local commands and controls their process groups. The
-incident example uses Pydantic Deep and an existing inference server.
+demo runs the Claude Code CLI in print mode.
 
 Apply these project conventions from Orla, Braid, Shared Cache World Model,
 Falafel, and Éire Society.
